@@ -1,0 +1,38 @@
+Implement background certificate processing and the remaining API endpoints.
+
+Use FastAPI BackgroundTasks for this assignment's initial implementation. Keep the worker logic in a service module, not inside the API route.
+
+A. Background processing:
+- The job starts as queued.
+- Mark it processing when execution begins.
+- Process valid pending recipients individually.
+- Update each certificate to processing, then completed or failed.
+- Save the PDF path only after successful generation.
+- Catch individual certificate-generation errors, store a useful error message, and continue processing other recipients.
+- Update job counts and final status accurately.
+- Use completed when all recipients succeed, partially_completed when successes and failures coexist, and failed when none succeeds.
+- If every recipient is invalid, finalize the job as failed without running PDF generation.
+- Ensure a worker-level failure does not leave a job permanently processing without a recorded failure.
+- Use database transactions and sessions carefully. Do not share a SQLAlchemy session across background-task boundaries.
+
+B. Job status:
+GET /api/v1/jobs/{job_id}
+
+Return job ID, status, total count, success count, failure count, and progress percentage. Include created/updated timestamps as appropriate.
+
+C. Certificate results:
+GET /api/v1/jobs/{job_id}/certificates
+
+Return recipient IDs, names, statuses, error messages, and download URLs for successful records. Add pagination if practical. Do not expose server filesystem paths.
+
+D. Download:
+GET /api/v1/certificates/{certificate_id}/download
+
+Return the PDF using FastAPI FileResponse. Verify that the certificate exists, its status is completed, and its stored path resolves safely inside the configured generated-certificates directory. Return 404 for missing certificates and 409 or another documented client error when the certificate is not ready.
+
+E. Job creation integration:
+Wire POST /api/v1/jobs to schedule processing after the database transaction commits. Return immediately with HTTP 202.
+
+Important limitation: BackgroundTasks are not a durable job queue. Document that a process crash may interrupt in-flight work. Do not claim crash recovery or guaranteed exactly-once execution.
+
+Add endpoint tests for status, progress, results, missing IDs, and downloading successful PDFs. Keep existing tests passing.

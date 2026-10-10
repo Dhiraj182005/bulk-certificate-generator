@@ -1,0 +1,22 @@
+Implement the project foundation for the Bulk Certificate Generator according to the agreed plan.
+
+Tasks:
+1. Create the FastAPI application entry point in app/main.py.
+2. Organize the application into api, services, configuration, database, models, and schemas modules.
+3. Add environment-based configuration using pydantic-settings.
+4. Configure synchronous SQLAlchemy 2.x using a database session dependency.
+5. Add a GET /api/v1/health endpoint.
+6. Add requirements.txt with all direct dependencies, including email-validator if using Pydantic EmailStr.
+7. Create .env.example and .gitignore. Never commit secrets or generated certificate files.
+8. Add Docker Compose configuration for a local PostgreSQL instance, if appropriate.
+9. Add a concise setup section to README.md.
+
+Use DATABASE_URL from environment variables. Never hardcode database credentials. Do not create tables manually in application startup; Alembic will manage schema changes in a later module.
+
+Verification:
+- Run the application with Uvicorn.
+- Confirm GET /api/v1/health returns HTTP 200.
+- Confirm /docs loads.
+- Run a Python syntax/import check.
+
+Do not implement certificate generation yet. Report files changed, commands run, and any issues remaining.

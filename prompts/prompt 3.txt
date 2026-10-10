@@ -1,0 +1,33 @@
+Implement request validation schemas and the bulk job creation endpoint.
+
+Endpoint:
+POST /api/v1/jobs
+
+Expected request:
+
+{
+  "course_name": "Python Programming",
+  "event_date": "2026-10-10",
+  "recipients": [
+    {"name": "Aarav Patil", "email": "aarav@example.com"},
+    {"name": "Priya Sharma", "email": "invalid-email"}
+  ]
+}
+
+Requirements:
+1. Validate top-level request structure and required course information.
+2. Require a non-empty recipient list and impose a documented maximum batch size, initially 1000 recipients.
+3. Validate each recipient independently, including non-empty names and valid email addresses.
+4. One invalid recipient must not reject all other recipients.
+5. Store every submitted recipient as a Certificate record. Mark invalid records failed with a clear validation error; valid records start pending.
+6. Create a GenerationJob and its recipient records in one database transaction.
+7. Store accurate total, success, and failure counts.
+8. Return HTTP 202 Accepted with job_id, status, total_count, and a status_url.
+9. Return HTTP 422 for malformed top-level requests or requests that violate batch-level constraints.
+10. Prevent raw validation exceptions from causing HTTP 500 responses.
+
+For per-recipient validation, do not use a Pydantic list of fully validated recipient models that rejects the entire request when one recipient is invalid. Validate individual recipient dictionaries separately, for example with RecipientInput.model_validate().
+
+Use UUIDs and proper response schemas. Add tests for valid creation, mixed valid/invalid recipients, and malformed top-level input.
+
+At this stage, persist the job and recipient records correctly. Do not yet implement PDF processing or download functionality.

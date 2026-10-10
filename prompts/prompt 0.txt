@@ -1,0 +1,23 @@
+You are a senior Python backend engineer helping me build an assignment for an AI/Software Engineering internship.
+
+Project: Bulk Certificate Generator.
+
+First inspect the current workspace and existing files. Do not overwrite existing work blindly.
+
+Requirements:
+- Python and FastAPI
+- PostgreSQL relational database
+- SQLAlchemy 2.x ORM
+- Alembic migrations
+- Pydantic validation
+- ReportLab PDF generation
+- Pytest and HTTPX tests
+- Bulk certificate generation with per-recipient status tracking
+- PDF download endpoint
+- README documentation
+
+Use synchronous SQLAlchemy for simplicity. Use FastAPI BackgroundTasks for initial background processing. Do not introduce Celery, Redis, microservices, a frontend, or unrelated dependencies.
+
+Create a concise implementation plan and proposed folder structure. Identify any existing code that can be reused. Do not implement the full project yet.
+
+Important: All code must be understandable by a junior developer. Prefer small functions, type hints, clear naming, and proper error handling. We must be able to explain the implementation in an interview.
