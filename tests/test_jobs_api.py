@@ -156,3 +156,64 @@ def test_non_dict_recipient_is_stored_as_failed_not_rejected(client, db_session)
     job = db_session.get(GenerationJob, uuid.UUID(response.json()["job_id"]))
     assert job.failure_count == 1
     assert job.success_count == 0
+
+
+def test_double_encoded_json_recipient_is_accepted(client, db_session):
+    """Regression: a recipient sent as a JSON string is decoded and validated.
+
+    Reproduces the original bug where model_validate() received a str and the
+    whole recipient failed with 'value: Input should be a valid dictionary...'.
+    """
+    payload = {
+        "course_name": "Python Programming",
+        "event_date": "2026-10-10",
+        "recipients": ['{"name": "Aarav Patil", "email": "aarav@example.com"}'],
+    }
+    response = client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 202
+    job = db_session.get(GenerationJob, uuid.UUID(response.json()["job_id"]))
+    assert job.failure_count == 0
+    assert job.success_count == 0
+    assert job.status == JobStatus.QUEUED
+
+    certificate = job.certificates[0]
+    assert certificate.status == CertificateStatus.PENDING
+    assert certificate.recipient_name == "Aarav Patil"
+    assert certificate.recipient_email == "aarav@example.com"
+
+
+def test_double_encoded_json_recipient_with_invalid_email_fails(client, db_session):
+    """Decoded string recipients still get full field validation."""
+    payload = {
+        "course_name": "Python Programming",
+        "event_date": "2026-10-10",
+        "recipients": ['{"name": "Priya Sharma", "email": "invalid-email"}'],
+    }
+    response = client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 202
+    job = db_session.get(GenerationJob, uuid.UUID(response.json()["job_id"]))
+    assert job.failure_count == 1
+
+    certificate = job.certificates[0]
+    assert certificate.status == CertificateStatus.FAILED
+    assert "email" in certificate.error_message
+
+
+def test_non_json_string_recipient_fails_with_clear_message(client, db_session):
+    """A string that is not JSON fails with a structure error, not a cryptic one."""
+    payload = {
+        "course_name": "Python Programming",
+        "event_date": "2026-10-10",
+        "recipients": ["just-a-string"],
+    }
+    response = client.post("/api/v1/jobs", json=payload)
+
+    assert response.status_code == 202
+    job = db_session.get(GenerationJob, uuid.UUID(response.json()["job_id"]))
+    certificate = job.certificates[0]
+    assert certificate.status == CertificateStatus.FAILED
+    assert certificate.error_message == (
+        "recipient must be a JSON object with 'name' and 'email' fields"
+    )

@@ -59,8 +59,14 @@ PDF.
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate        # Windows
-source .venv/bin/activate     # macOS / Linux
+source .venv/bin/activate     # macOS / Linux / Git Bash
+pip install -r requirements.txt
+```
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -72,17 +78,23 @@ Using Docker Compose (recommended for local development):
 docker compose up -d          # postgres:16 on localhost:5432, db=certificates
 ```
 
-Or point `DATABASE_URL` at any PostgreSQL 14+ instance you already run.
+The Compose file runs PostgreSQL 16 on port `5432` with local-dev
+credentials `postgres` / `postgres` and database `certificates`. Or point
+`DATABASE_URL` at any PostgreSQL 14+ instance you already run.
 
 ### 3. Environment variables
 
 ```bash
-cp .env.example .env          # Windows: copy .env.example .env
+cp .env.example .env
+```
+
+```powershell
+Copy-Item .env.example .env
 ```
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | yes | SQLAlchemy URL, e.g. `postgresql+psycopg2://postgres:postgres@localhost:5432/certificates` |
+| `DATABASE_URL` | yes | SQLAlchemy URL using the installed `psycopg2` driver (`psycopg2-binary` in `requirements.txt`), e.g. `postgresql+psycopg2://postgres:postgres@localhost:5432/certificates` |
 | `CERTIFICATE_OUTPUT_DIR` | no | PDF output directory (default `generated_certificates/`) |
 
 `.env` is gitignored — never commit real credentials. The committed
@@ -100,6 +112,11 @@ alembic revision --autogenerate -m "description"   # generate a new migration
 alembic current                                    # show applied revision
 ```
 
+Same commands in PowerShell — run them inside the activated virtual
+environment (`.venv\Scripts\Activate.ps1`), or prefix with
+`.venv\Scripts\` (e.g. `.venv\Scripts\alembic upgrade head`) if you have
+not activated it.
+
 ## Running the application
 
 ```bash
@@ -114,6 +131,9 @@ uvicorn app.main:app --reload
 ```bash
 pytest            # or: python -m pytest -v
 ```
+
+PowerShell: identical commands after activation (`python -m pytest -v`
+always works if `pytest` is not on your PATH).
 
 Every test gets its own in-memory SQLite database and a temp PDF directory —
 tests never touch PostgreSQL, the network, or the repo's output directory.
@@ -133,6 +153,20 @@ curl -X POST http://127.0.0.1:8000/api/v1/jobs \
           {"name": "Priya Sharma", "email": "invalid-email"}
         ]
       }'
+```
+
+PowerShell equivalent (single quotes keep the JSON intact):
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/jobs -Method Post `
+  -ContentType application/json -Body '{
+    "course_name": "Python Programming",
+    "event_date": "2026-10-10",
+    "recipients": [
+      {"name": "Aarav Patil", "email": "aarav@example.com"},
+      {"name": "Priya Sharma", "email": "invalid-email"}
+    ]
+  }'
 ```
 
 Response — `202 Accepted`:
@@ -168,10 +202,13 @@ Entity`.
 ```
 
 `status` is `completed` when every recipient succeeds, `partially_completed`
-when successes and failures coexist, and `failed` when none succeeds.
+when successes and failures coexist, and `failed` when none succeeds
+(including a job whose batch is invalid from the start, which is created
+directly as `failed` and never scheduled for processing).
 `success_count` counts generated PDFs, `failure_count` counts permanently
-failed recipients, and `progress_percent = (success + failure) / total`.
-Unknown job IDs return `404`.
+failed recipients, and
+`progress_percent = round(100 * (success_count + failure_count) / total_count)`
+(a 0–100 integer, `0` for a just-queued job). Unknown job IDs return `404`.
 
 ### List certificate results
 
@@ -211,6 +248,10 @@ exposed.
 curl -OJ http://127.0.0.1:8000/api/v1/certificates/32caae23-6eff-49fc-9186-8e2722c309c6/download
 ```
 
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/v1/certificates/32caae23-6eff-49fc-9186-8e2722c309c6/download -OutFile certificate.pdf
+```
+
 Returns `200` with `Content-Type: application/pdf` for completed certificates.
 `404` if the certificate (or its file) is missing; `409 Conflict` if it is
 still `pending`, `processing`, or `failed`. The stored path is resolved and
@@ -218,15 +259,21 @@ re-checked so it can never point outside the configured output directory.
 
 ## How errors are handled
 
-- **Invalid recipient at intake** (bad/missing name, invalid email, non-dict
-  entry): stored as a `failed` certificate with a human-readable
-  `error_message`; all other recipients in the batch are unaffected.
+- **Invalid recipient at intake** (bad/missing name, invalid email, entry
+  that is not a JSON object): stored as a `failed` certificate with a
+  human-readable `error_message`; all other recipients in the batch are
+  unaffected. A recipient accidentally sent as a JSON-encoded *string*
+  (common with shell quoting) is decoded first and validated normally;
+  a string that is not valid JSON is stored as failed with
+  `recipient must be a JSON object with 'name' and 'email' fields`.
 - **Individual PDF-generation failure at runtime**: that certificate becomes
   `failed` with `error_message: "PDF generation failed: ..."`, no file is
   written (partial files are deleted), and processing continues with the
   remaining recipients. The job ends `partially_completed`.
-- **Worker-level crash**: a safety net marks the job `failed` so it is never
-  left stuck in `processing` without a recorded failure.
+- **Unhandled *catchable* exception in the worker**: the safety net in
+  `process_job` logs the traceback and marks the job `failed` through a
+  fresh session, so a Python exception can never leave a job stuck in
+  `processing`.
 - **All-invalid batch**: the job is finalized `failed` immediately and no PDF
   generation runs.
 
@@ -239,9 +286,12 @@ session per run, and it is trivially testable.
 
 Limitations (be honest about these):
 
-- **Not durable**: `BackgroundTasks` runs in-process. A crash/deploy/restart
-  interrupts in-flight work; it will **not** resume. There is no crash
-  recovery and no exactly-once guarantee.
+- **Not durable against process termination**: `BackgroundTasks` runs
+  in-process. The safety net above only covers exceptions Python can catch;
+  if the process is killed, OOMs, or restarts mid-run, no code executes —
+  in-flight jobs stay `processing`/`pending`, are **not** resumed, and must
+  be re-run manually. There is no crash recovery and no exactly-once
+  guarantee.
 - **No retries**: failed certificates are terminal; there is no automatic
   retry (which also guarantees no duplicate PDF generation from retries).
 - **Single-process throughput**: work shares the API process; heavy batches
@@ -254,8 +304,9 @@ Limitations (be honest about these):
 - **Local filesystem storage**: PDFs are written to one local directory
   (`generated_certificates/`); there is no S3/object storage, so the service
   is single-node and volumes must be backed up separately.
-- **No durable job recovery**: see above — interrupted jobs stay
-  `processing`/`pending` until manually re-run.
+- **No durable job recovery**: process termination (see above), unlike
+  caught exceptions, leaves jobs `processing`/`pending` until manually
+  re-run.
 - **Synchronous SQLAlchemy + in-process worker**: fine for an assignment
   load; a production system would use an external queue and likely an
   async or pooled worker design.

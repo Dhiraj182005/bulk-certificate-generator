@@ -318,3 +318,35 @@ def test_mixed_job_intake_counts_invalid_as_progress(client, db_session):
     assert status_data["success_count"] == 0
     assert status_data["failure_count"] == 1
     assert status_data["progress_percent"] == 50
+
+
+def test_double_encoded_recipient_generates_pdf_end_to_end(client, background_env):
+    """Regression: a JSON-string recipient flows through to a generated PDF.
+
+    Originally such recipients failed intake with a Pydantic structure error
+    and never reached PDF generation.
+    """
+    payload = {
+        "course_name": "Python Programming",
+        "event_date": "2026-10-10",
+        "recipients": ['{"name": "Aarav Patil", "email": "aarav@example.com"}'],
+    }
+    response = client.post("/api/v1/jobs", json=payload)
+    assert response.status_code == 202
+    job_id = response.json()["job_id"]
+
+    status_data = client.get(f"/api/v1/jobs/{job_id}").json()
+    assert status_data["status"] == "completed"
+    assert status_data["success_count"] == 1
+    assert status_data["failure_count"] == 0
+
+    certs = client.get(f"/api/v1/jobs/{job_id}/certificates").json()
+    item = certs["items"][0]
+    assert item["recipient_name"] == "Aarav Patil"
+    assert item["status"] == "completed"
+    assert item["download_url"] is not None
+
+    download = client.get(item["download_url"])
+    assert download.status_code == 200
+    assert download.content.startswith(b"%PDF")
+    assert len(list(background_env.rglob("*.pdf"))) == 1
